@@ -1,0 +1,1114 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Liar's Dice - משחק פרודו אונליין</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- PeerJS עבור רשת מרובת משתתפים P2P ישירות בדפדפן ללא צורך בשרת -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  
+  <!-- Canvas Confetti לחגיגת ניצחון -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;600;700;900&display=swap" rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Heebo', sans-serif;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* עיצוב שולחן לבד ירוק יוקרתי */
+    .felt-table {
+      background: radial-gradient(circle at center, #1b5e20 0%, #0d3813 65%, #051b0a 100%);
+      box-shadow: inset 0 0 70px rgba(0, 0, 0, 0.8), 0 10px 40px rgba(0,0,0,0.6);
+      border: 12px solid #3e2723;
+    }
+
+    /* קובייה תלת-ממדית נקייה */
+    .die-face {
+      width: 44px;
+      height: 44px;
+      border-radius: 8px;
+      background: linear-gradient(145deg, #ffffff, #e6e6e6);
+      box-shadow: 2px 2px 6px rgba(0,0,0,0.35), inset -1px -1px 2px rgba(0,0,0,0.15);
+      display: grid;
+      grid-template: repeat(3, 1fr) / repeat(3, 1fr);
+      padding: 5px;
+      position: relative;
+      flex-shrink: 0;
+    }
+
+    .die-sm {
+      width: 30px;
+      height: 30px;
+      border-radius: 6px;
+      padding: 3px;
+    }
+
+    .pip {
+      width: 7px;
+      height: 7px;
+      background-color: #1a1a1a;
+      border-radius: 50%;
+      align-self: center;
+      justify-self: center;
+      box-shadow: inset 0 1px 1px rgba(0,0,0,0.6);
+    }
+    .pip-red {
+      background-color: #d32f2f;
+    }
+    .die-sm .pip {
+      width: 5px;
+      height: 5px;
+    }
+
+    /* אנימציות כוס וגלגול */
+    .shake-anim {
+      animation: shake 0.5s ease-in-out infinite alternate;
+    }
+
+    @keyframes shake {
+      0% { transform: rotate(-5deg) translateY(-2px); }
+      100% { transform: rotate(5deg) translateY(2px); }
+    }
+
+    .cup-lift {
+      transform: translateY(-40px) scale(1.05);
+      transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    /* התאמה למסכי מגע */
+    .touch-btn {
+      active:scale-95 transition-transform duration-100;
+    }
+
+    /* גלילה אלגנטית ליומן הפעולות */
+    ::-webkit-scrollbar {
+      width: 4px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.1);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.2);
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-white min-h-screen flex flex-col justify-between overflow-x-hidden">
+
+  <!-- ==================== חלון כניסה לחדר (LOBBY MODAL) ==================== -->
+  <div id="lobbyModal" class="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-amber-500/30 w-full max-w-md rounded-2xl p-6 shadow-2xl relative text-center">
+      <div class="text-4xl mb-2">🎲 🏆</div>
+      <h1 class="text-3xl font-black text-amber-400 mb-1">Liar's Dice / פרודו</h1>
+      <p class="text-sm text-slate-400 mb-6">משחק הבלופים, הקוביות והטקטיקה בזמן אמת</p>
+
+      <div class="space-y-4 text-right">
+        <div>
+          <label class="block text-xs font-semibold text-slate-300 mb-1">השם שלך במשחק</label>
+          <input type="text" id="playerNameInput" placeholder="למשל: יוני הקוסם" maxlength="14"
+            class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-400 text-lg">
+        </div>
+
+        <div class="pt-2 border-t border-slate-800 flex flex-col gap-3">
+          <button id="btnCreateRoom" class="w-full py-3.5 bg-gradient-to-r from-amber-500 to-yellow-600 hover:from-amber-600 hover:to-yellow-700 text-slate-950 font-bold rounded-xl shadow-lg transition duration-200">
+            👑 צור שולחן משחק חדש (מארח)
+          </button>
+          
+          <div class="flex items-center gap-2 my-1">
+            <div class="h-px bg-slate-800 flex-1"></div>
+            <span class="text-xs text-slate-500">או הצטרף לחבר</span>
+            <div class="h-px bg-slate-800 flex-1"></div>
+          </div>
+
+          <div class="flex gap-2">
+            <input type="text" id="roomCodeInput" placeholder="קוד שולחן (Room ID)"
+              class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white text-center font-mono uppercase focus:outline-none focus:border-amber-400 text-sm">
+            <button id="btnJoinRoom" class="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-amber-400 font-bold rounded-xl transition">
+              הצטרף
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <p id="lobbyStatus" class="mt-4 text-xs text-amber-300 min-h-[18px]"></p>
+    </div>
+  </div>
+
+  <!-- ==================== בר עליון (ניווט ושיתוף) ==================== -->
+  <header class="bg-slate-900/90 border-b border-slate-800 px-4 py-2.5 flex items-center justify-between z-10">
+    <div class="flex items-center gap-3">
+      <div class="w-3 h-3 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500 animate-pulse"></div>
+      <div>
+        <span class="text-xs text-slate-400">חדר:</span>
+        <span id="displayRoomId" class="font-mono font-bold text-amber-400 text-sm">----</span>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <button id="btnCopyInvite" class="px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-xs font-semibold rounded-lg border border-amber-500/30 flex items-center gap-1.5 transition">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"/></svg>
+        <span>העתק קישור להזמנה</span>
+      </button>
+
+      <!-- כפתורי שליטת מנהל חדר -->
+      <button id="btnHostReset" title="אתחל משחק מלא (רק למנהל)" class="hidden px-2.5 py-1.5 bg-rose-950/60 hover:bg-rose-900 border border-rose-700/50 text-rose-300 text-xs rounded-lg transition">
+        איפוס משחק
+      </button>
+    </div>
+  </header>
+
+  <!-- ==================== הודעת מערכת קופצת (TOAST) ==================== -->
+  <div id="toast" class="fixed top-14 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 border border-amber-400 text-amber-300 px-5 py-2.5 rounded-full shadow-2xl text-xs font-semibold transform -translate-y-20 opacity-0 transition-all duration-300 pointer-events-none">
+    הקישור הועתק ללוח!
+  </div>
+
+  <!-- ==================== אזור המשחק המרכזי (השולחן) ==================== -->
+  <main class="flex-1 p-2 md:p-6 flex flex-col items-center justify-center relative">
+    
+    <!-- שלט תור / שלב נוכחי -->
+    <div class="mb-3 text-center">
+      <div id="turnBadge" class="inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-slate-800/90 border border-slate-700 text-sm font-semibold shadow-lg">
+        <span id="turnIndicator">ממתין לשחקנים...</span>
+      </div>
+    </div>
+
+    <!-- שולחן הפוקר הירוק -->
+    <div class="felt-table w-full max-w-4xl min-h-[380px] md:min-h-[440px] rounded-[3rem] p-4 md:p-8 flex flex-col justify-between relative overflow-hidden">
+      
+      <!-- שחקנים סביב השולחן (שורה עליונה/צדדים) -->
+      <div id="tablePlayersList" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 z-10">
+        <!-- נבנה דינמית דרך JS -->
+      </div>
+
+      <!-- מרכז השולחן: ההימור הנוכחי / תוצאות הסיבוב -->
+      <div class="my-auto py-6 flex flex-col items-center justify-center text-center z-10">
+        
+        <div id="centerBidBox" class="bg-black/40 backdrop-blur-sm border border-emerald-400/30 rounded-2xl px-6 py-4 shadow-xl">
+          <p class="text-xs uppercase tracking-widest text-emerald-300 font-semibold mb-1">ההימור הנוכחי שעל השולחן</p>
+          <div id="currentBidDisplay" class="flex items-center justify-center gap-3 text-3xl md:text-4xl font-black text-amber-300">
+            <span class="text-slate-400 text-lg font-normal">טרם הוגש הימור בסיבוב זה</span>
+          </div>
+          <p id="lastBidderText" class="text-xs text-slate-300 mt-2 min-h-[16px]"></p>
+        </div>
+
+        <!-- הודעת תוצאת חשיפת בלוף -->
+        <div id="revealOutcomeCard" class="hidden mt-3 bg-slate-900/95 border-2 border-yellow-500 p-4 rounded-xl shadow-2xl max-w-md animate-bounce-once">
+          <h3 id="revealTitle" class="text-lg font-black text-amber-400 mb-1">תוצאות הבדיקה!</h3>
+          <p id="revealDetails" class="text-sm text-slate-200 mb-3"></p>
+          <button id="btnNextRound" class="hidden px-5 py-2 bg-gradient-to-r from-amber-500 to-yellow-600 text-slate-950 font-bold rounded-lg shadow-md hover:brightness-110 text-sm">
+            🎲 סיבוב הבא (ערבב קוביות)
+          </button>
+        </div>
+
+      </div>
+
+      <!-- סיכום סך כל הקוביות שנותרו במשחק -->
+      <div class="flex justify-between items-end text-xs text-emerald-200/80 z-10 border-t border-emerald-900/40 pt-2">
+        <span id="totalDiceInGame">סך קוביות במשחק: 0</span>
+        <span class="text-[11px] opacity-75">חוק פרודו: קוביות מס' 1 הן ג'וקר (חוץ מבדיקת 1)</span>
+      </div>
+    </div>
+  </main>
+
+  <!-- ==================== אזור הפעולות והקוביות האישיות ==================== -->
+  <footer class="bg-slate-900 border-t border-slate-800 p-3 md:p-5 z-20 shadow-2xl">
+    <div class="max-w-4xl mx-auto flex flex-col md:flex-row items-center gap-4 justify-between">
+      
+      <!-- הקוביות האישיות שלי והכוס שלי -->
+      <div class="flex items-center gap-4 bg-slate-800/80 border border-slate-700/80 p-3 rounded-2xl w-full md:w-auto justify-between md:justify-start">
+        
+        <!-- כוס אישית להסתרה/הצצה -->
+        <div class="flex flex-col items-center">
+          <button id="btnToggleCup" class="relative group p-2 bg-amber-950/40 border border-amber-600/40 rounded-xl hover:bg-amber-900/40 transition">
+            <!-- אייקון כוס תלת-ממדית -->
+            <svg class="w-10 h-10 text-amber-400 group-hover:-translate-y-1 transition duration-200" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M5 3h14c.6 0 1 .4 1 1v2c0 4.4-3.6 8-8 8s-8-3.6-8-8V4c0-.6.4-1 1-1z"/>
+              <path d="M10 14h4v5h3v2H7v-2h3v-5z"/>
+            </svg>
+            <span id="cupPeekText" class="text-[10px] block mt-0.5 text-amber-300 font-bold">הצץ</span>
+          </button>
+        </div>
+
+        <!-- תצוגת הקוביות האישיות -->
+        <div class="flex-1">
+          <div class="text-xs text-slate-400 mb-1.5 flex justify-between items-center">
+            <span class="font-bold text-slate-200">הקוביות שלך (<span id="myDiceCount">5</span>):</span>
+            <span id="cupStatusBadge" class="text-[10px] text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800">גלויות רק לך</span>
+          </div>
+          
+          <div id="myDiceContainer" class="flex items-center gap-2 flex-wrap min-h-[46px]">
+            <!-- הקוביות נבנות דרך JS -->
+          </div>
+        </div>
+      </div>
+
+      <!-- לוח הבקרה וההימורים (פעיל רק כשתורי) -->
+      <div id="actionControls" class="w-full md:w-auto flex flex-col gap-2 opacity-50 pointer-events-none transition-all duration-200">
+        <div class="flex items-center gap-2 justify-center md:justify-end flex-wrap">
+          
+          <!-- כמות קוביות -->
+          <div class="flex items-center bg-slate-800 border border-slate-700 rounded-xl px-2 py-1">
+            <button id="btnQtyMinus" class="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold flex items-center justify-center text-lg">-</button>
+            <span id="bidQty" class="w-10 text-center font-bold text-xl text-amber-400">1</span>
+            <button id="btnQtyPlus" class="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-white font-bold flex items-center justify-center text-lg">+</button>
+          </div>
+
+          <span class="text-sm font-semibold text-slate-400">של</span>
+
+          <!-- ערך הקובייה (1 עד 6) -->
+          <div id="diceFaceSelector" class="flex gap-1 bg-slate-800 p-1 rounded-xl border border-slate-700">
+            <!-- כפתורי 1-6 -->
+          </div>
+
+          <!-- כפתור העלאת הימור -->
+          <button id="btnPlaceBid" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 font-bold text-white rounded-xl shadow-lg transition touch-btn text-sm">
+            הימור 🗣️
+          </button>
+
+          <!-- כפתור "בלוף!" / Dudo -->
+          <button id="btnCallLiar" class="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 font-black text-white rounded-xl shadow-lg transition touch-btn text-sm tracking-wide">
+            בלוף! 💥
+          </button>
+        </div>
+
+        <p id="bidValidationMsg" class="text-[11px] text-rose-400 text-center md:text-left min-h-[16px]"></p>
+      </div>
+
+    </div>
+  </footer>
+
+  <!-- ==================== קוד המשחק הלוגי ורשת ה-P2P ==================== -->
+  <script>
+    /*
+      מנוע Liar's Dice / Perudo מרובה משתתפים
+      עובד ב-WebRTC דרך ספריית PeerJS:
+      השחקן שיוצר את החדר הופך ל-Host שמחזיק בסמכות מצב המשחק (Game State)
+      ומסנכרן אותו בין כל המשתתפים ללא שום צורך בהקמת שרת!
+    */
+
+    // משתני מערכת ו-WebRTC
+    let peer = null;
+    let connections = {}; // חיבורים למארח (אם אני Host) או חיבור למארח (אם אני Client)
+    let hostConn = null;
+    let isHost = false;
+    let myId = '';
+    let myName = 'שחקן';
+    let roomId = '';
+    let isCupPeeking = true; // האם השחקן רואה את הקוביות שלו
+
+    // מבנה מצב המשחק המרכזי
+    let gameState = {
+      status: 'waiting', // 'waiting', 'bidding', 'revealed', 'gameover'
+      players: [],       // [{ id, name, diceCount, dice: [], isAlive }]
+      turnIndex: 0,
+      currentBid: null,  // { playerId, playerName, quantity, face }
+      lastChallengerId: null,
+      revealResult: null,
+      history: []
+    };
+
+    // אלמנטים ב-DOM
+    const lobbyModal = document.getElementById('lobbyModal');
+    const playerNameInput = document.getElementById('playerNameInput');
+    const roomCodeInput = document.getElementById('roomCodeInput');
+    const btnCreateRoom = document.getElementById('btnCreateRoom');
+    const btnJoinRoom = document.getElementById('btnJoinRoom');
+    const lobbyStatus = document.getElementById('lobbyStatus');
+    const displayRoomId = document.getElementById('displayRoomId');
+    const btnCopyInvite = document.getElementById('btnCopyInvite');
+    const btnHostReset = document.getElementById('btnHostReset');
+    const toast = document.getElementById('toast');
+
+    const turnBadge = document.getElementById('turnBadge');
+    const turnIndicator = document.getElementById('turnIndicator');
+    const tablePlayersList = document.getElementById('tablePlayersList');
+    const currentBidDisplay = document.getElementById('currentBidDisplay');
+    const lastBidderText = document.getElementById('lastBidderText');
+    const totalDiceInGame = document.getElementById('totalDiceInGame');
+
+    const revealOutcomeCard = document.getElementById('revealOutcomeCard');
+    const revealTitle = document.getElementById('revealTitle');
+    const revealDetails = document.getElementById('revealDetails');
+    const btnNextRound = document.getElementById('btnNextRound');
+
+    const myDiceContainer = document.getElementById('myDiceContainer');
+    const myDiceCountEl = document.getElementById('myDiceCount');
+    const btnToggleCup = document.getElementById('btnToggleCup');
+    const cupPeekText = document.getElementById('cupPeekText');
+    const cupStatusBadge = document.getElementById('cupStatusBadge');
+
+    const actionControls = document.getElementById('actionControls');
+    const btnQtyMinus = document.getElementById('btnQtyMinus');
+    const btnQtyPlus = document.getElementById('btnQtyPlus');
+    const bidQtyEl = document.getElementById('bidQty');
+    const diceFaceSelector = document.getElementById('diceFaceSelector');
+    const btnPlaceBid = document.getElementById('btnPlaceBid');
+    const btnCallLiar = document.getElementById('btnCallLiar');
+    const bidValidationMsg = document.getElementById('bidValidationMsg');
+
+    // ערכי ברירת מחדל להימור
+    let selectedQty = 1;
+    let selectedFace = 2;
+
+    // בניית בורר הפאות 1-6
+    function initFaceSelector() {
+      diceFaceSelector.innerHTML = '';
+      for (let f = 1; f <= 6; f++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.dataset.face = f;
+        btn.className = `w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm transition ${
+          f === selectedFace ? 'bg-amber-400 text-slate-950 ring-2 ring-amber-300' : 'bg-slate-700 text-white hover:bg-slate-600'
+        }`;
+        btn.innerHTML = f === 1 ? '⭐1' : f;
+        btn.onclick = () => {
+          selectedFace = f;
+          initFaceSelector();
+          validateBid();
+        };
+        diceFaceSelector.appendChild(btn);
+      }
+    }
+
+    // תצוגת קובייה ויזואלית (SVG פשוט ואלגנטי)
+    function renderDieHTML(value, isSmall = false) {
+      const pipsMap = {
+        1: [4],
+        2: [0, 8],
+        3: [0, 4, 8],
+        4: [0, 2, 6, 8],
+        5: [0, 2, 4, 6, 8],
+        6: [0, 2, 3, 5, 6, 8]
+      };
+      
+      const pips = pipsMap[value] || [];
+      let pipsHTML = '';
+      for (let i = 0; i < 9; i++) {
+        if (pips.includes(i)) {
+          const isRed = (value === 1);
+          pipsHTML += `<div class="pip ${isRed ? 'pip-red' : ''}"></div>`;
+        } else {
+          pipsHTML += `<div></div>`;
+        }
+      }
+
+      const sizeClass = isSmall ? 'die-sm' : '';
+      return `<div class="die-face ${sizeClass}">${pipsHTML}</div>`;
+    }
+
+    // הודעת Toast צפה
+    function showToast(text) {
+      toast.textContent = text;
+      toast.classList.remove('-translate-y-20', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+      setTimeout(() => {
+        toast.classList.add('-translate-y-20', 'opacity-0');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+      }, 2500);
+    }
+
+    // פונקציית הטלת קוביות
+    function rollDice(count) {
+      const dice = [];
+      for (let i = 0; i < count; i++) {
+        dice.push(Math.floor(Math.random() * 6) + 1);
+      }
+      return dice.sort((a, b) => a - b);
+    }
+
+    // בדיקת פרמטרים ב-URL (הצטרפות מהירה דרך לינק עם Hash)
+    window.addEventListener('load', () => {
+      initFaceSelector();
+      const hash = window.location.hash.replace('#', '').trim();
+      if (hash) {
+        roomCodeInput.value = hash.toUpperCase();
+        lobbyStatus.textContent = 'זוהה קוד חדר מהקישור! הזן שם והצטרף.';
+      }
+    });
+
+    // כפתור הצצה לקוביות
+    btnToggleCup.addEventListener('click', () => {
+      isCupPeeking = !isCupPeeking;
+      cupPeekText.textContent = isCupPeeking ? 'הסתר' : 'הצץ';
+      cupStatusBadge.textContent = isCupPeeking ? 'גלויות רק לך' : 'מוסתרות';
+      cupStatusBadge.className = isCupPeeking 
+        ? 'text-[10px] text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800'
+        : 'text-[10px] text-amber-400 bg-amber-950/60 px-2 py-0.5 rounded-full border border-amber-800';
+      renderMyDice();
+    });
+
+    // כפתור העתקת קישור
+    btnCopyInvite.addEventListener('click', () => {
+      if (!roomId) {
+        showToast('יש לפתוח או להצטרף לחדר תחילה');
+        return;
+      }
+      const url = `${window.location.origin}${window.location.pathname}#${roomId}`;
+      const tempInput = document.createElement('input');
+      tempInput.value = url;
+      document.body.appendChild(tempInput);
+      tempInput.select();
+      document.execCommand('copy');
+      document.body.removeChild(tempInput);
+      showToast('הקישור הועתק! שלח לחברים');
+    });
+
+    // ==========================================
+    // רשת P2P מבוססת PeerJS
+    // ==========================================
+
+    function setupPeer(customId = null, onOpenCallback) {
+      lobbyStatus.textContent = 'מתחבר לרשת P2P...';
+      peer = customId ? new Peer(customId) : new Peer();
+
+      peer.on('open', (id) => {
+        myId = id;
+        onOpenCallback(id);
+      });
+
+      peer.on('error', (err) => {
+        console.error('Peer error:', err);
+        lobbyStatus.textContent = 'שגיאת התחברות: בדוק את החיבור לרשת';
+      });
+
+      // כשהמארח מקבל חיבור חדש
+      peer.on('connection', (conn) => {
+        if (!isHost) return;
+
+        conn.on('open', () => {
+          connections[conn.peer] = conn;
+        });
+
+        conn.on('data', (data) => {
+          handleHostIncomingData(conn.peer, data);
+        });
+
+        conn.on('close', () => {
+          delete connections[conn.peer];
+          if (isHost) {
+            handlePlayerDisconnect(conn.peer);
+          }
+        });
+      });
+    }
+
+    // יצירת חדר חדש כמארח (Host)
+    btnCreateRoom.addEventListener('click', () => {
+      const name = playerNameInput.value.trim();
+      if (!name) {
+        lobbyStatus.textContent = 'אנא הכנס שם לפני יצירת החדר';
+        return;
+      }
+      myName = name;
+      isHost = true;
+
+      // יצירת קוד חדר קצר וקריא
+      const shortCode = 'DICE-' + Math.floor(1000 + Math.random() * 9000);
+      setupPeer(shortCode, (id) => {
+        roomId = id;
+        initHostGame();
+      });
+    });
+
+    // הצטרפות לחדר קיים
+    btnJoinRoom.addEventListener('click', () => {
+      const name = playerNameInput.value.trim();
+      const code = roomCodeInput.value.trim().toUpperCase();
+      if (!name) {
+        lobbyStatus.textContent = 'אנא הכנס שם';
+        return;
+      }
+      if (!code) {
+        lobbyStatus.textContent = 'אנא הכנס קוד חדר';
+        return;
+      }
+      myName = name;
+      isHost = false;
+      roomId = code;
+
+      setupPeer(null, (id) => {
+        lobbyStatus.textContent = 'מתחבר למארח השולחן...';
+        hostConn = peer.connect(code, { reliable: true });
+
+        hostConn.on('open', () => {
+          lobbyStatus.textContent = 'מחובר! ממתין לנתונים...';
+          // שליחת פרטי שחקן למארח
+          hostConn.send({
+            type: 'JOIN',
+            playerName: myName
+          });
+          lobbyModal.classList.add('hidden');
+          displayRoomId.textContent = roomId;
+          window.location.hash = roomId;
+        });
+
+        hostConn.on('data', (data) => {
+          handleClientIncomingData(data);
+        });
+
+        hostConn.on('close', () => {
+          showToast('החיבור למארח נותק');
+          setTimeout(() => location.reload(), 2000);
+        });
+      });
+    });
+
+    // ==========================================
+    // לוגיקת המארח (HOST ENGINE)
+    // ==========================================
+
+    function initHostGame() {
+      displayRoomId.textContent = roomId;
+      window.location.hash = roomId;
+      lobbyModal.classList.add('hidden');
+      btnHostReset.classList.remove('hidden');
+
+      gameState = {
+        status: 'waiting',
+        players: [{
+          id: myId,
+          name: myName,
+          diceCount: 5,
+          dice: rollDice(5),
+          isAlive: true
+        }],
+        turnIndex: 0,
+        currentBid: null,
+        lastChallengerId: null,
+        revealResult: null,
+        history: []
+      };
+
+      updateUI();
+    }
+
+    function handleHostIncomingData(senderId, data) {
+      if (data.type === 'JOIN') {
+        // הוספת שחקן חדש
+        const existing = gameState.players.find(p => p.id === senderId);
+        if (!existing) {
+          gameState.players.push({
+            id: senderId,
+            name: data.playerName,
+            diceCount: 5,
+            dice: rollDice(5),
+            isAlive: true
+          });
+          // אם היו ממתינים לשחקנים ויש לפחות 2 שחקנים - נתחיל את המשחק
+          if (gameState.status === 'waiting' && gameState.players.length >= 2) {
+            startNewRound(false);
+          } else {
+            broadcastState();
+          }
+        }
+      } else if (data.type === 'BID') {
+        handleBidSubmission(senderId, data.quantity, data.face);
+      } else if (data.type === 'CALL_LIAR') {
+        handleCallLiar(senderId);
+      } else if (data.type === 'NEXT_ROUND') {
+        startNewRound(true);
+      }
+    }
+
+    function handlePlayerDisconnect(playerId) {
+      const idx = gameState.players.findIndex(p => p.id === playerId);
+      if (idx !== -1) {
+        const pName = gameState.players[idx].name;
+        gameState.players.splice(idx, 1);
+        showToast(`${pName} עזב את השולחן`);
+        if (gameState.players.length < 2) {
+          gameState.status = 'waiting';
+        } else if (gameState.turnIndex >= gameState.players.length) {
+          gameState.turnIndex = 0;
+        }
+        broadcastState();
+      }
+    }
+
+    // התחלת סיבוב חדש
+    function startNewRound(keepTurns = true) {
+      // גלגול קוביות חדשות לכל שחקן שחי
+      gameState.players.forEach(p => {
+        if (p.diceCount > 0) {
+          p.dice = rollDice(p.diceCount);
+          p.isAlive = true;
+        } else {
+          p.dice = [];
+          p.isAlive = false;
+        }
+      });
+
+      gameState.currentBid = null;
+      gameState.revealResult = null;
+      gameState.status = 'bidding';
+
+      // בדיקת תור תקין
+      if (!keepTurns || !gameState.players[gameState.turnIndex]?.isAlive) {
+        advanceTurnToAlivePlayer();
+      }
+
+      broadcastState();
+    }
+
+    function advanceTurnToAlivePlayer() {
+      const alivePlayers = gameState.players.filter(p => p.isAlive);
+      if (alivePlayers.length <= 1) {
+        gameState.status = 'gameover';
+        broadcastState();
+        return;
+      }
+      let tries = 0;
+      do {
+        gameState.turnIndex = (gameState.turnIndex + 1) % gameState.players.length;
+        tries++;
+      } while (!gameState.players[gameState.turnIndex].isAlive && tries < gameState.players.length * 2);
+    }
+
+    // טיפול בהימור
+    function handleBidSubmission(playerId, qty, face) {
+      const currentTurnPlayer = gameState.players[gameState.turnIndex];
+      if (currentTurnPlayer.id !== playerId) return;
+
+      const player = gameState.players.find(p => p.id === playerId);
+      gameState.currentBid = {
+        playerId: player.id,
+        playerName: player.name,
+        quantity: parseInt(qty),
+        face: parseInt(face)
+      };
+
+      advanceTurnToAlivePlayer();
+      broadcastState();
+    }
+
+    // קריאת בלוף (Dudo / Liar)
+    function handleCallLiar(challengerId) {
+      if (!gameState.currentBid) return;
+
+      const challenger = gameState.players.find(p => p.id === challengerId);
+      const targetBid = gameState.currentBid;
+      const targetPlayer = gameState.players.find(p => p.id === targetBid.playerId);
+
+      // ספירת סך הקוביות של כולם בשולחן
+      let totalMatching = 0;
+      let totalOnes = 0;
+
+      gameState.players.forEach(p => {
+        p.dice.forEach(val => {
+          if (val === targetBid.face) totalMatching++;
+          if (val === 1) totalOnes++;
+        });
+      });
+
+      // חוק פרודו: קוביות 1 (Aces) נספרות כג'וקר אלא אם ההימור עצמו היה על 1
+      const countIncludesWildOnes = (targetBid.face !== 1);
+      const actualCount = countIncludesWildOnes ? (totalMatching + totalOnes) : totalMatching;
+
+      // האם ההימור היה בלוף?
+      const wasLie = actualCount < targetBid.quantity;
+      let loserPlayer = wasLie ? targetPlayer : challenger;
+      let winnerPlayer = wasLie ? challenger : targetPlayer;
+
+      // הורדת קובייה אחת למפסיד
+      loserPlayer.diceCount = Math.max(0, loserPlayer.diceCount - 1);
+      if (loserPlayer.diceCount === 0) {
+        loserPlayer.isAlive = false;
+      }
+
+      gameState.status = 'revealed';
+      gameState.lastChallengerId = challengerId;
+      gameState.revealResult = {
+        challengerName: challenger.name,
+        targetPlayerName: targetPlayer.name,
+        targetBid: targetBid,
+        actualCount: actualCount,
+        wildOnesUsed: countIncludesWildOnes ? totalOnes : 0,
+        wasLie: wasLie,
+        loserName: loserPlayer.name,
+        loserId: loserPlayer.id,
+        loserOut: loserPlayer.diceCount === 0
+      };
+
+      // מי שמפסיד קובייה מתחיל את הסיבוב הבא (אם עדיין בחיים, אחרת זה שאחריו)
+      const loserIndex = gameState.players.findIndex(p => p.id === loserPlayer.id);
+      gameState.turnIndex = loserIndex;
+      if (!loserPlayer.isAlive) {
+        advanceTurnToAlivePlayer();
+      }
+
+      broadcastState();
+    }
+
+    // שידור מצב המשחק לכולם
+    function broadcastState() {
+      // אם המשחק נגמר (רק שחקן 1 שרד)
+      const alivePlayers = gameState.players.filter(p => p.isAlive);
+      if (alivePlayers.length === 1 && gameState.players.length > 1) {
+        gameState.status = 'gameover';
+      }
+
+      // שליחה אישית לכל שחקן: כל שחקן מקבל רק את הקוביות של עצמו, אלא אם זה מצב revealed!
+      gameState.players.forEach(p => {
+        const playerState = JSON.parse(JSON.stringify(gameState));
+        if (gameState.status !== 'revealed') {
+          // הסתרת קוביות של אחרים
+          playerState.players.forEach(other => {
+            if (other.id !== p.id) {
+              other.dice = []; // מרוקן כדי שלא יוכלו להציץ ב-Network inspection
+            }
+          });
+        }
+
+        if (p.id === myId) {
+          handleIncomingState(playerState);
+        } else if (connections[p.id]) {
+          connections[p.id].send({
+            type: 'STATE_UPDATE',
+            state: playerState
+          });
+        }
+      });
+    }
+
+    // איפוס מלא של המשחק ע"י המארח
+    btnHostReset.addEventListener('click', () => {
+      if (!isHost) return;
+      gameState.players.forEach(p => {
+        p.diceCount = 5;
+        p.dice = rollDice(5);
+        p.isAlive = true;
+      });
+      gameState.turnIndex = 0;
+      gameState.status = 'bidding';
+      gameState.currentBid = null;
+      gameState.revealResult = null;
+      broadcastState();
+      showToast('המשחק אופס בהצלחה לכל השחקנים!');
+    });
+
+    // ==========================================
+    // קליינט: קבלת נתונים
+    // ==========================================
+
+    function handleClientIncomingData(data) {
+      if (data.type === 'STATE_UPDATE') {
+        handleIncomingState(data.state);
+      }
+    }
+
+    function handleIncomingState(state) {
+      gameState = state;
+      updateUI();
+    }
+
+    // ==========================================
+    // עדכון ורינדור ממשק המשתמש (UI)
+    // ==========================================
+
+    function updateUI() {
+      const me = gameState.players.find(p => p.id === myId) || { diceCount: 5, dice: [], isAlive: true };
+      
+      // עדכון מספר קוביות אישי
+      myDiceCountEl.textContent = me.diceCount;
+      renderMyDice(me.dice);
+
+      // עדכון שחקנים על השולחן
+      renderTablePlayers();
+
+      // עדכון סטטוס תור והימור מרכזי
+      updateTurnAndBidStatus();
+
+      // עדכון לוח הבקרה האישי
+      updateControlsStatus(me);
+
+      // חשיפת תוצאת סיבוב אם רלוונטי
+      renderRevealOutcome();
+
+      // סך קוביות במשחק
+      const totalDice = gameState.players.reduce((sum, p) => sum + p.diceCount, 0);
+      totalDiceInGame.textContent = `סך קוביות פעילות בשולחן: ${totalDice}`;
+
+      // חגיגת סיום
+      if (gameState.status === 'gameover') {
+        const winner = gameState.players.find(p => p.isAlive);
+        if (winner && window.confetti) {
+          confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 } });
+        }
+      }
+    }
+
+    function renderMyDice(diceArray = null) {
+      const me = gameState.players.find(p => p.id === myId);
+      const dice = diceArray || me?.dice || [];
+
+      myDiceContainer.innerHTML = '';
+      if (!me || me.diceCount === 0) {
+        myDiceContainer.innerHTML = `<span class="text-xs text-rose-400 font-bold">יצאת מהמשחק (0 קוביות)</span>`;
+        return;
+      }
+
+      if (!isCupPeeking) {
+        myDiceContainer.innerHTML = `
+          <div class="flex items-center gap-2 text-xs text-slate-400 bg-slate-900/50 px-3 py-2 rounded-xl">
+            <span>🙈 הקוביות מוסתרות בכוס. לחץ "הצץ" כדי לראות</span>
+          </div>`;
+        return;
+      }
+
+      dice.forEach(val => {
+        myDiceContainer.insertAdjacentHTML('beforeend', renderDieHTML(val));
+      });
+    }
+
+    function renderTablePlayers() {
+      tablePlayersList.innerHTML = '';
+
+      gameState.players.forEach((p, idx) => {
+        const isCurrentTurn = (gameState.status === 'bidding' && idx === gameState.turnIndex);
+        const isMe = p.id === myId;
+        const isLoser = gameState.revealResult && gameState.revealResult.loserId === p.id;
+
+        const card = document.createElement('div');
+        card.className = `relative rounded-2xl p-3 flex flex-col items-center text-center transition-all duration-300 ${
+          isCurrentTurn ? 'bg-amber-500/20 border-2 border-amber-400 shadow-lg scale-105' : 'bg-black/30 border border-emerald-900/60'
+        } ${!p.isAlive ? 'opacity-40 grayscale' : ''}`;
+
+        // אייקון כוס או קוביות חשופות
+        let diceDisplayHTML = '';
+        if (gameState.status === 'revealed' && p.dice && p.dice.length > 0) {
+          // מציג את כל הקוביות של כולם כשהכוסות מורמות
+          diceDisplayHTML = `<div class="flex flex-wrap gap-1 justify-center mt-2">${p.dice.map(d => renderDieHTML(d, true)).join('')}</div>`;
+        } else {
+          // כוס מכוסה עם מונה קוביות
+          diceDisplayHTML = `
+            <div class="relative my-1">
+              <svg class="w-8 h-8 text-amber-600 drop-shadow" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M5 3h14c.6 0 1 .4 1 1v2c0 4.4-3.6 8-8 8s-8-3.6-8-8V4c0-.6.4-1 1-1z"/>
+                <path d="M10 14h4v5h3v2H7v-2h3v-5z"/>
+              </svg>
+              <span class="absolute -bottom-1 -right-1 bg-slate-900 text-amber-400 font-bold text-[10px] w-4 h-4 rounded-full border border-amber-500 flex items-center justify-center">${p.diceCount}</span>
+            </div>
+          `;
+        }
+
+        card.innerHTML = `
+          <div class="flex items-center gap-1.5 mb-1">
+            <span class="text-xs font-bold text-slate-100 truncate max-w-[90px]">${p.name} ${isMe ? '(אתה)' : ''}</span>
+            ${isCurrentTurn ? '<span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>' : ''}
+          </div>
+          ${diceDisplayHTML}
+          <div class="text-[10px] text-slate-300 mt-1">
+            ${!p.isAlive ? '💀 הודח' : `${p.diceCount} קוביות`}
+          </div>
+          ${isLoser ? '<span class="text-[10px] text-rose-400 font-bold mt-1">איבד קובייה ❌</span>' : ''}
+        `;
+
+        tablePlayersList.appendChild(card);
+      });
+    }
+
+    function updateTurnAndBidStatus() {
+      const currentTurnPlayer = gameState.players[gameState.turnIndex];
+
+      if (gameState.status === 'waiting') {
+        turnIndicator.innerHTML = `⏳ ממתין לשחקן נוסף (שתף את הקישור למעלה)`;
+        turnBadge.className = 'inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-slate-800 border border-slate-700 text-sm font-semibold';
+      } else if (gameState.status === 'gameover') {
+        const winner = gameState.players.find(p => p.isAlive);
+        turnIndicator.innerHTML = `🏆 המנצח: <strong>${winner ? winner.name : 'אין'}</strong>! כל הכבוד!`;
+        turnBadge.className = 'inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-amber-500 text-slate-950 text-sm font-black shadow-lg';
+      } else if (gameState.status === 'bidding') {
+        if (currentTurnPlayer) {
+          const isMe = currentTurnPlayer.id === myId;
+          turnIndicator.innerHTML = isMe ? '🔥 <strong>התור שלך!</strong> בחר הימור או הכרז בלוף' : `תורו של: <strong>${currentTurnPlayer.name}</strong>...`;
+          turnBadge.className = isMe 
+            ? 'inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-amber-400 text-slate-950 text-sm font-bold shadow-lg animate-pulse'
+            : 'inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-slate-800 text-slate-200 border border-slate-700 text-sm font-semibold';
+        }
+      } else if (gameState.status === 'revealed') {
+        turnIndicator.innerHTML = `👀 <strong>הקוביות נחשפו!</strong>`;
+        turnBadge.className = 'inline-flex items-center gap-2 px-5 py-1.5 rounded-full bg-rose-600 text-white text-sm font-bold shadow-lg';
+      }
+
+      // תצוגת ההימור הנוכחי
+      if (gameState.currentBid) {
+        currentBidDisplay.innerHTML = `
+          <span>${gameState.currentBid.quantity} פעמים</span>
+          ${renderDieHTML(gameState.currentBid.face, false)}
+        `;
+        lastBidderText.textContent = `הוגש ע"י: ${gameState.currentBid.playerName}`;
+      } else {
+        currentBidDisplay.innerHTML = `<span class="text-slate-400 text-sm font-normal">טרם הוגש הימור בסיבוב זה</span>`;
+        lastBidderText.textContent = '';
+      }
+    }
+
+    function renderRevealOutcome() {
+      if (gameState.status !== 'revealed' || !gameState.revealResult) {
+        revealOutcomeCard.classList.add('hidden');
+        return;
+      }
+
+      const res = gameState.revealResult;
+      revealOutcomeCard.classList.remove('hidden');
+
+      const faceText = res.targetBid.face === 1 ? '1' : res.targetBid.face;
+      revealTitle.innerHTML = res.wasLie 
+        ? `🔥 ${res.challengerName} צדק! זה היה בלוף!`
+        : `🛡️ ${res.challengerName} טעה! לא היה בלוף!`;
+
+      revealDetails.innerHTML = `
+        ההימור היה לפחות <strong>${res.targetBid.quantity}</strong> קוביות מסוג ${faceText}.<br>
+        בפועל נמצאו: <span class="text-amber-400 font-black text-base">${res.actualCount}</span> 
+        ${res.wildOnesUsed > 0 ? `(כולל ${res.wildOnesUsed} ג'וקרים 1)` : ''}.<br>
+        <strong>${res.loserName}</strong> איבד קובייה אחת! ${res.loserOut ? '💀 והודח מהמשחק!' : ''}
+      `;
+
+      // רק המארח יכול להתחיל את הסיבוב הבא (או כל שחקן אם המארח אישר)
+      btnNextRound.classList.remove('hidden');
+    }
+
+    btnNextRound.addEventListener('click', () => {
+      sendAction({ type: 'NEXT_ROUND' });
+    });
+
+    // ==========================================
+    // בקרות שחקן והימורים
+    // ==========================================
+
+    function updateControlsStatus(me) {
+      const isMyTurn = (gameState.status === 'bidding' && gameState.players[gameState.turnIndex]?.id === myId && me.isAlive);
+
+      if (isMyTurn) {
+        actionControls.classList.remove('opacity-50', 'pointer-events-none');
+        btnCallLiar.disabled = !gameState.currentBid;
+        if (!gameState.currentBid) {
+          btnCallLiar.classList.add('opacity-40', 'cursor-not-allowed');
+        } else {
+          btnCallLiar.classList.remove('opacity-40', 'cursor-not-allowed');
+        }
+        adjustDefaultBid();
+        validateBid();
+      } else {
+        actionControls.classList.add('opacity-50', 'pointer-events-none');
+        bidValidationMsg.textContent = '';
+      }
+    }
+
+    function adjustDefaultBid() {
+      if (gameState.currentBid) {
+        selectedQty = gameState.currentBid.quantity;
+        selectedFace = gameState.currentBid.face;
+        // מציע אוטומטית הימור גבוה במעט
+        if (selectedFace < 6) {
+          selectedFace++;
+        } else {
+          selectedQty++;
+          selectedFace = 2;
+        }
+      } else {
+        selectedQty = 1;
+        selectedFace = 2;
+      }
+      bidQtyEl.textContent = selectedQty;
+      initFaceSelector();
+    }
+
+    btnQtyMinus.addEventListener('click', () => {
+      if (selectedQty > 1) {
+        selectedQty--;
+        bidQtyEl.textContent = selectedQty;
+        validateBid();
+      }
+    });
+
+    btnQtyPlus.addEventListener('click', () => {
+      selectedQty++;
+      bidQtyEl.textContent = selectedQty;
+      validateBid();
+    });
+
+    // וידוא חוקיות ההימור לפי חוקי פרודו הרשמיים
+    function validateBid() {
+      const cur = gameState.currentBid;
+      if (!cur) {
+        bidValidationMsg.textContent = '';
+        btnPlaceBid.disabled = false;
+        btnPlaceBid.classList.remove('opacity-40', 'cursor-not-allowed');
+        return true;
+      }
+
+      // חוקי Liar's Dice / Perudo:
+      // 1. כמות גדולה יותר של כל פאה שהיא.
+      // 2. אותה כמות, אבל ערך פאה גבוה יותר (פאה 1 היא מיוחדת).
+      let isValid = false;
+
+      if (cur.face !== 1 && selectedFace === 1) {
+        // מעבר לפאת 1 (Aces) דורש רק חצי מהכמות (מעוגל מעלה)
+        const minOnes = Math.ceil(cur.quantity / 2);
+        isValid = (selectedQty >= minOnes);
+      } else if (cur.face === 1 && selectedFace !== 1) {
+        // מעבר חזרה מפאת 1 לפאה רגילה דורש כפול פלוס 1
+        const minOther = (cur.quantity * 2) + 1;
+        isValid = (selectedQty >= minOther);
+      } else {
+        // הימור רגיל: או כמות גבוהה יותר, או אותה כמות עם פאה גדולה יותר
+        if (selectedQty > cur.quantity) {
+          isValid = true;
+        } else if (selectedQty === cur.quantity && selectedFace > cur.face) {
+          isValid = true;
+        }
+      }
+
+      if (!isValid) {
+        bidValidationMsg.textContent = '⚠️ ההימור חייב להיות גבוה יותר בכמות או בערך הפאה';
+        btnPlaceBid.disabled = true;
+        btnPlaceBid.classList.add('opacity-40', 'cursor-not-allowed');
+      } else {
+        bidValidationMsg.textContent = '';
+        btnPlaceBid.disabled = false;
+        btnPlaceBid.classList.remove('opacity-40', 'cursor-not-allowed');
+      }
+
+      return isValid;
+    }
+
+    // שליחת הימור
+    btnPlaceBid.addEventListener('click', () => {
+      if (!validateBid()) return;
+      sendAction({
+        type: 'BID',
+        quantity: selectedQty,
+        face: selectedFace
+      });
+    });
+
+    // הכרזת בלוף
+    btnCallLiar.addEventListener('click', () => {
+      if (!gameState.currentBid) return;
+      sendAction({
+        type: 'CALL_LIAR'
+      });
+    });
+
+    function sendAction(msg) {
+      if (isHost) {
+        handleHostIncomingData(myId, msg);
+      } else if (hostConn && hostConn.open) {
+        hostConn.send(msg);
+      }
+    }
+  </script>
+</body>
+</html>
